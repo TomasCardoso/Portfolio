@@ -22,6 +22,7 @@ seasons = [('0', (date(Y,  1,  1),  date(Y,  3, 20))), # Winter
 	           ('3', (date(Y,  9, 23),  date(Y, 12, 20))), # Autumn
 	           ('0', (date(Y, 12, 21),  date(Y, 12, 31)))] # Winter
 
+# Function for data fetching. Works for both train and test data (specified by data_type argument)
 def fetch_data(data_type, encode_categorical_data = True):
 
 	data_path = 'data/' + data_type + '.csv'
@@ -118,6 +119,7 @@ def encode_timestamp(data):
 
 	return data
 
+# XGBoost training function
 def model_training():
 
 	train = fetch_data('train')
@@ -134,6 +136,8 @@ def model_training():
 
 	model.save_model('model/xgboost_complete.model')
 
+# Compares data schema used in trained and enforces test data schema to be of the same form
+# Important function if the predictions are computed iteratively 
 def complete_schema(base, current):
 
 	base_columns = list(base.columns.values)
@@ -146,35 +150,62 @@ def complete_schema(base, current):
 
 	return current
 
+# Computes predictions
+# Currently doing iterative prediction (test set too big to fit in memory)
 def compute_predictions(train):
-	
-	test = fetch_data('test')
-	test = test.sort_values('row_id')
-	print('Starting prediction...')
 
-	row_id = test['row_id']
-	X = test.drop(['row_id'], axis = 1)
-
+	# Variable declaration
+	data_type = 'test'
+	predictions = pd.DataFrame(columns = ['row_id', 'meter_reading'])
 	train = train.drop(['meter_reading', 'Unnamed: 0', 'Unnamed: 0.1', 'Unnamed: 0.1.1'], axis = 1)
-	X = complete_schema(train, X)
 
+	# Building and weather data load
+	data_path = 'data/' + data_type + '.csv'
+	weather_path = 'data/weather_' + data_type + '.csv'
+
+	building_metadata = pd.read_csv('data/building_metadata.csv')
+	weather = pd.read_csv(weather_path)
+
+	# Model import
 	model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = 10, n_estimators = 20, verbosity=2)
 	model.load_model('model/xgboost_complete.model')
-	y_pred = model.predict(X)
 
-	test['meter_reading'] = y_pred
-	predictions = test[['row_id', 'meter_reading']]
+	print('Starting prediction...')
+
+	# Iterative data load and prediction
+	for test in pd.read_csv('data/test.csv', chunksize=5000000):
+		
+		test = pd.merge(test, building_metadata, on='building_id')
+		test = pd.merge(test, weather, left_on=['site_id', 'timestamp'], right_on=['site_id', 'timestamp'], how='left')
+
+		test = encode_timestamp(test)
+		test = encode_categorical(test)
+		test = test.sort_values('row_id')
+
+		row_id = test['row_id']
+		test = test.drop(['row_id'], axis = 1)
+
+		test = complete_schema(train, test)
+		
+		y_pred = model.predict(test)
+
+		test['meter_reading'] = y_pred
+		test['row_id'] = row_id
+		new_predictions = test[['row_id', 'meter_reading']]
+
+		predictions = pd.concat([predictions, new_predictions])
 
 	print('Done')
 
 	return predictions
 
-#Calculate feature importance using XGBoost
+#Calculate feature importance using XGBoost and plots it
 def feature_importance(model):
 
 	xgb.plot_importance(model)
 	pyplot.show()
 
+# Compute rmsle of predicted samples
 def rmsle(real, predicted):
 	sum = 0.0
 	real = real.to_list()
@@ -193,11 +224,11 @@ def main():
 	#print('Loading data...')
 	#train = load_data()
 	#train.to_csv('complete_training_set.csv')
-	train = pd.read_csv('complete_training_set.csv', nrows=10)
+	train_schema = pd.read_csv('complete_training_set.csv', nrows=10)
 	# Calculate feature importance
 	#feature_importance(model)
-	model_training()
-	predictions = compute_predictions(train)
+	#model_training()
+	predictions = compute_predictions(train_schema)
 	predictions.to_csv('submission.csv', index=False)
 
 main()
