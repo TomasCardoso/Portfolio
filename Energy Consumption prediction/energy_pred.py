@@ -30,7 +30,7 @@ def fetch_data(data_type, encode_categorical_data = True):
 
 	building_metadata = pd.read_csv('data/building_metadata.csv')
 	weather = pd.read_csv(weather_path)
-	data = pd.read_csv(data_path)
+	data = pd.read_csv(data_path, nrows = 10000000)
 
 	data = pd.merge(data, building_metadata, on='building_id')
 	data = pd.merge(data, weather, left_on=['site_id', 'timestamp'], right_on=['site_id', 'timestamp'], how='left')
@@ -119,12 +119,36 @@ def encode_timestamp(data):
 
 	return data
 
+def grid_search():
+	depth_list = [35]
+	n_trees_list = [30]
+	learning_rate_list = [0.1, 0.3, 0.5, 0.8]
+
+	X = fetch_data('train')
+	y = X['meter_reading']
+	X = X.drop(['meter_reading'], axis = 1)
+
+	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+	for n_trees in n_trees_list:
+		for depth in depth_list:
+			for lr in learning_rate_list:
+				model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = depth, n_estimators = n_trees, learning_rate=lr, verbosity=1)
+				model.fit(X_train, y_train)
+				y_pred = model.predict(X_test)
+				score = rmsle(y_test, y_pred)
+				print('Test: Score for depth = ' + str(depth) + '; n_trees = ' + str(n_trees) + '; RMSLE = ' + str(score))
+				y_pred = model.predict(X_train)
+				score = rmsle(y_train, y_pred)
+				print('Train: Score for depth = ' + str(depth) + '; n_trees = ' + str(n_trees) + '; RMSLE = ' + str(score))
+
+
 # XGBoost training function
 def model_training():
 
 	train = fetch_data('train')
 
-	model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = 10, n_estimators = 20, verbosity=2)
+	model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = 30, n_estimators = 50, verbosity=2)
 
 	print('Starting model training...')
 	
@@ -167,7 +191,7 @@ def compute_predictions(train):
 	weather = pd.read_csv(weather_path)
 
 	# Model import
-	model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = 10, n_estimators = 20, verbosity=2)
+	model = xgb.XGBRegressor(objective ='reg:squarederror', n_jobs = 5, max_depth = 30, n_estimators = 50, verbosity=2)
 	model.load_model('model/xgboost_complete.model')
 
 	print('Starting prediction...')
@@ -230,5 +254,6 @@ def main():
 	#model_training()
 	predictions = compute_predictions(train_schema)
 	predictions.to_csv('submission.csv', index=False)
+	#grid_search()
 
 main()
