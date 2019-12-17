@@ -1,14 +1,10 @@
+# Imports
 import pandas as pd
-#import vaex as pd
-#from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from datetime import datetime, date
 from numpy import sin, cos, pi
 import numpy as np
 import xgboost as xgb
-#import time
-import pickle
-#import calendar
 from matplotlib import pyplot
 
 
@@ -120,8 +116,8 @@ def encode_timestamp(data):
 	return data
 
 def grid_search():
-	depth_list = [35]
-	n_trees_list = [30]
+	depth_list = [10, 15, 20, 25, 30, 35]
+	n_trees_list = [30, 40, 50, 80, 100]
 	learning_rate_list = [0.1, 0.3, 0.5, 0.8]
 
 	X = fetch_data('train')
@@ -144,7 +140,7 @@ def grid_search():
 
 
 # XGBoost training function
-def model_training():
+def model_training(max_depth, n_estimators):
 
 	train = fetch_data('train')
 
@@ -220,7 +216,7 @@ def compute_predictions(train):
 		predictions = pd.concat([predictions, new_predictions])
 
 	print('Done')
-
+	predictions.to_csv('submission.csv', index=False)
 	return predictions
 
 #Calculate feature importance using XGBoost and plots it
@@ -245,15 +241,27 @@ def rmsle(real, predicted):
 
 def main():
 
-	#print('Loading data...')
-	#train = load_data()
-	#train.to_csv('complete_training_set.csv')
-	train_schema = pd.read_csv('complete_training_set.csv', nrows=10)
-	# Calculate feature importance
-	#feature_importance(model)
-	#model_training()
+	# Data loading function, only ran at first time. Reads the 3 separate csv containing training data, merges them and
+	# does categorical enconding and feature transformation using the timestamp.
+	print('Loading data...')
+	train = fecth_data('train')
+	# Save complete training data to csv to load from directly.
+	train.to_csv('complete_training_set.csv')
+	
+	# Tests XGBoost model with several combinations of parameters, which can be specified in the function itself,
+	# prints results to terminal
+	grid_search()
+
+	# Loads train data and trains model with given parameters (tree depth & number of trees)
+	model_training(30, 50)
+
+	# Load complete training data with schema to be used in the compute_predictions() function
+	train_schema = pd.read_csv('complete_training_set.csv', nrows=2)
+
+	# Does iterative sample prediction in order to manage big datasets. Uses train schema to complete 
+	# test data in case of missing classes in categorical field.
+	# Saves predictions to csv.
 	predictions = compute_predictions(train_schema)
-	predictions.to_csv('submission.csv', index=False)
-	#grid_search()
+	
 
 main()
